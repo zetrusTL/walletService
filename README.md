@@ -44,13 +44,13 @@ docker-compose up --build
 ### Операция с кошельком
     POST /api/v1/wallet
 
-    Пример DEPOSIT
+#### Пример DEPOSIT
 ```bash
 curl -X POST localhost:8080/api/v1/wallet \
 -H "Content-Type: application/json" \
 -d '{"walletId":"11111111-1111-1111-1111-111111111111","operationType":"DEPOSIT","amount":100}'
 ```        
-    Пример WITHDRAW
+#### Пример WITHDRAW
 ```bash
 curl -X POST localhost:8080/api/v1/wallet \
 -H "Content-Type: application/json" \
