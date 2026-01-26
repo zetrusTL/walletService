@@ -14,31 +14,23 @@ import (
 )
 
 func main() {
-	// 1) config из env
 	cfg, err := internal.LoadConfig()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
 
-	// 2) подключаем pgx pool
 	pool, err := connectPGXPool(cfg.PostgresDSN())
 	if err != nil {
 		log.Fatalf("connect db: %v", err)
 	}
 	defer pool.Close()
 
-	// 3) собираем зависимости
 	repo := internal.NewPostgresRepo(pool)
 	svc := internal.NewWalletService(repo)
 
-	// 4) HTTP (пока заглушка — добавим handlers дальше)
 	mux := http.NewServeMux()
 	h := internal.NewHandler(svc)
 	internal.RegisterRoutes(mux, h)
-
-
-	// здесь позже подключим роуты кошелька:
-	// internal.RegisterRoutes(mux, svc)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.AppPort,
@@ -48,7 +40,6 @@ func main() {
 		IdleTimeout:  30 * time.Second,
 	}
 
-	// 5) graceful shutdown
 	go func() {
 		log.Printf("server started on :%s", cfg.AppPort)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -79,7 +70,6 @@ func connectPGXPool(dsn string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("parse dsn: %w", err)
 	}
 
-	// можно настроить пул (не обязательно, но приятно)
 	cfg.MaxConns = 20
 	cfg.MinConns = 2
 	cfg.MaxConnLifetime = 30 * time.Minute
@@ -89,7 +79,6 @@ func connectPGXPool(dsn string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("pgxpool new: %w", err)
 	}
 
-	// пингуем, чтобы упасть сразу, если БД недоступна
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("db ping: %w", err)
