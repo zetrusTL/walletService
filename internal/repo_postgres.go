@@ -76,5 +76,17 @@ func (r *PostgresRepo) withdraw(ctx context.Context, walletID uuid.UUID, amount 
 		return newBalance, nil
 	}
 
+	if errors.Is(err, pgx.ErrNoRows) {
+		var exists bool
+		exErr := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wallets WHERE id = $1)`, walletID).Scan(&exists)
+		if exErr != nil {
+			return 0, fmt.Errorf("withdraw exists-check: %w", exErr)
+		}
+		if !exists {
+			return 0, ErrNotFound
+		}
+		return 0, ErrInsufficientFunds
+	}
+
 	return 0, fmt.Errorf("withdraw: %w", err)
 }
