@@ -24,7 +24,7 @@ func main() {
 		log.Fatalf("connect db: %v", err)
 	}
 	defer pool.Close()
-
+		//зависимости
 	repo := internal.NewPostgresRepo(pool)
 	svc := internal.NewWalletService(repo)
 
@@ -42,7 +42,7 @@ func main() {
 
 	go func() {
 		log.Printf("server started on :%s", cfg.AppPort)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {   //слушаем порт
 			log.Fatalf("listen: %v", err)
 		}
 	}()

@@ -16,14 +16,13 @@ func NewHandler(svc *WalletService) *Handler {
 	return &Handler{svc: svc}
 }
 
-// POST
 func (h *Handler) HandleWalletOperation(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req OperationRequest
+	var req OperationRequest											//читает json
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields() 
 	if err := dec.Decode(&req); err != nil {
@@ -31,7 +30,6 @@ func (h *Handler) HandleWalletOperation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Базовая валидация (сервис тоже проверит)
 	if req.WalletID == uuid.Nil {
 		writeError(w, http.StatusBadRequest, "walletId is required")
 		return
