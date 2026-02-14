@@ -24,7 +24,6 @@ func main() {
 		log.Fatalf("connect db: %v", err)
 	}
 	defer pool.Close()
-		//зависимости
 	repo := internal.NewPostgresRepo(pool)
 	svc := internal.NewWalletService(repo)
 
@@ -69,6 +68,7 @@ func connectPGXPool(dsn string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse dsn: %w", err)
 	}
+	
 
 	cfg.MaxConns = 20
 	cfg.MinConns = 2
