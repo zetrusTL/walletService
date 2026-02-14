@@ -9,11 +9,13 @@ import (
 )
 
 type Handler struct {
-	svc *WalletService
+	svc       *WalletService
+	authRepo  *AuthRepo
+	jwtSecret []byte
 }
 
-func NewHandler(svc *WalletService) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *WalletService, authRepo *AuthRepo, jwtSecret []byte) *Handler {
+	return &Handler{svc: svc, authRepo: authRepo, jwtSecret: jwtSecret}
 }
 
 func (h *Handler) HandleWalletOperation(w http.ResponseWriter, r *http.Request) {

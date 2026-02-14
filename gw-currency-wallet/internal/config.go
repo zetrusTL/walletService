@@ -7,6 +7,7 @@ import (
 
 type Config struct {
 	AppPort    string
+	JWTSecret  string
 	DBHost     string
 	DBPort     string
 	DBUser     string
@@ -18,6 +19,7 @@ type Config struct {
 func LoadConfig() (Config, error) {
 	cfg := Config{
 		AppPort:    os.Getenv("APP_PORT"),
+		JWTSecret:  os.Getenv("JWT_SECRET"),
 		DBHost:     os.Getenv("DB_HOST"),
 		DBPort:     os.Getenv("DB_PORT"),
 		DBUser:     os.Getenv("DB_USER"),
@@ -30,6 +32,9 @@ func LoadConfig() (Config, error) {
 		cfg.AppPort = "8080"
 	}
 
+	if cfg.JWTSecret == "" {
+		return Config{}, fmt.Errorf("missing JWT_SECRET")
+	}
 	if cfg.DBHost == "" || cfg.DBPort == "" || cfg.DBUser == "" || cfg.DBName == "" {
 		return Config{}, fmt.Errorf("missing db env vars")
 	}

@@ -14,22 +14,33 @@ import (
 )
 
 func main() {
+	log.Print("starting wallet app...")
+	defer func() {
+		if v := recover(); v != nil {
+			log.Printf("panic: %v", v)
+			os.Exit(1)
+		}
+	}()
+
 	cfg, err := internal.LoadConfig()
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		log.Printf("load config: %v", err)
+		os.Exit(1)
 	}
 
-	pool, err := connectPGXPool(cfg.PostgresDSN())
+	pool, err := connectPGXPoolWithRetry(cfg.PostgresDSN(), 30*time.Second)
 	if err != nil {
-		log.Fatalf("connect db: %v", err)
+		log.Printf("connect db: %v", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 	repo := internal.NewPostgresRepo(pool)
 	svc := internal.NewWalletService(repo)
+	authRepo := internal.NewAuthRepo(pool)
 
 	mux := http.NewServeMux()
-	h := internal.NewHandler(svc)
-	internal.RegisterRoutes(mux, h)
+	h := internal.NewHandler(svc, authRepo, []byte(cfg.JWTSecret))
+	internal.RegisterRoutes(mux, h, []byte(cfg.JWTSecret))
 
 	server := &http.Server{
 		Addr:         ":" + cfg.AppPort,
@@ -40,9 +51,16 @@ func main() {
 	}
 
 	go func() {
+		defer func() {
+			if v := recover(); v != nil {
+				log.Printf("panic in server: %v", v)
+				os.Exit(1)
+			}
+		}()
 		log.Printf("server started on :%s", cfg.AppPort)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {   //слушаем порт
-			log.Fatalf("listen: %v", err)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("listen: %v", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -60,29 +78,39 @@ func main() {
 	log.Println("bye")
 }
 
-func connectPGXPool(dsn string) (*pgxpool.Pool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
+func connectPGXPoolWithRetry(dsn string, timeout time.Duration) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse dsn: %w", err)
 	}
-	
-
 	cfg.MaxConns = 20
 	cfg.MinConns = 2
 	cfg.MaxConnLifetime = 30 * time.Minute
 
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("pgxpool new: %w", err)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		pool, err := pgxpool.NewWithConfig(ctx, cfg)
+		cancel()
+		if err != nil {
+			log.Printf("db connect attempt: %v", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
+		err = pool.Ping(ctx2)
+		cancel2()
+		if err != nil {
+			pool.Close()
+			log.Printf("db ping: %v", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		return pool, nil
 	}
+	return nil, fmt.Errorf("db not ready after %v", timeout)
+}
 
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("db ping: %w", err)
-	}
-
-	return pool, nil
+func connectPGXPool(dsn string) (*pgxpool.Pool, error) {
+	return connectPGXPoolWithRetry(dsn, 5*time.Second)
 }

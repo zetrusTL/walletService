@@ -10,12 +10,27 @@ services:
       - "5433:5432"
     volumes:
       - dbdata:/var/lib/postgresql/data
-      - ./gw-currency-wallet/migrations:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U wallet -d wallet"]
       interval: 3s
       timeout: 3s
       retries: 20
+
+  migrator:
+    image: postgres:16-alpine
+    container_name: wallet_migrator
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: wallet
+      PGPASSWORD: wallet
+      PGDATABASE: wallet
+    volumes:
+      - ./migrations:/migrations:ro
+    command: ["/bin/sh", "/migrations/run-migrations.sh"]
 
   app:
     build:
@@ -24,9 +39,16 @@ services:
     container_name: wallet_app
     env_file:
       - gw-currency-wallet/config.env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+    entrypoint: ["sh", "-c"]
+    command: ["echo '=== app wrapper ==='; /app/wallet 2>&1; e=$$?; echo 'Exit code:' $$e; exit $$e"]
     depends_on:
       db:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     ports:
       - "8080:8080"
 

@@ -23,46 +23,92 @@ HTTP-сервис для управления балансом кошелько�
 
 ---
 
+### Переменные окружения
+
+- **JWT_SECRET** — секрет для подписи JWT (обязательно).
+- **DB_HOST**, **DB_PORT**, **DB_USER**, **DB_PASSWORD**, **DB_NAME** — подключение к PostgreSQL.
+- **DB_SSLMODE** — опционально (по умолчанию `disable`).
+- **APP_PORT** — порт приложения (по умолчанию `8080`).
+
 ### Запуск через Docker (из корня монорепо)
 
 ```bash
-# Из корня репозитория:
+# Из корня репозитория (миграции применяются автоматически сервисом migrator):
 docker compose up --build
 ```
 
-### Получить баланс:
-    GET /api/v1/wallets/{walletId}
+Проверка, что таблицы созданы:
 ```bash
-    (curl localhost:8080/api/v1/wallets/11111111-1111-1111-1111-111111111111)
+docker compose exec db psql -U wallet -d wallet -c '\dt'
 ```
-    Ожидание: ({
-                "walletId": "11111111-1111-1111-1111-111111111111",
-                "balance": 1000
-                    } )
+Ожидаются таблицы: `balances`, `users`, `wallet_legacy`, `wallets`.
 
-### Операция с кошельком
-    POST /api/v1/wallet
+### Регистрация и логин (JWT)
 
-#### Пример DEPOSIT
+#### Регистрация — POST /api/v1/register
+
 ```bash
-curl -X POST localhost:8080/api/v1/wallet \
--H "Content-Type: application/json" \
--d '{"walletId":"11111111-1111-1111-1111-111111111111","operationType":"DEPOSIT","amount":100}'
-```        
-#### Пример WITHDRAW
-```bash
-curl -X POST localhost:8080/api/v1/wallet \
--H "Content-Type: application/json" \
--d '{"walletId":"11111111-1111-1111-1111-111111111111","operationType":"WITHDRAW","amount":50}'
+curl -X POST http://localhost:8080/api/v1/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","email":"alice@example.com","password":"secret123"}'
 ```
 
+Ответ: `201 Created` (при успехе). При занятом username/email — `409 Conflict`.
 
+#### Логин — POST /api/v1/login
 
-### Ошибки:
+```bash
+curl -X POST http://localhost:8080/api/v1/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"secret123"}'
+```
 
-    400	invalid amount / invalid operation / invalid json
+Ответ: `200 OK` и JSON с полем `token` (JWT). Далее передавайте его в заголовке: `Authorization: Bearer <token>`.
+
+### Баланс и операции (требуется JWT)
+
+Во всех запросах ниже подставьте свой токен: `TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/login -H "Content-Type: application/json" -d '{"username":"alice","password":"secret123"}' | jq -r .token)` и используйте `-H "Authorization: Bearer $TOKEN"`.
+
+#### Получить баланс — GET /api/v1/balance
+
+```bash
+curl -s http://localhost:8080/api/v1/balance -H "Authorization: Bearer $TOKEN"
+```
+
+Ответ: `200 OK`, например:
+```json
+{"balance":{"USD":0,"RUB":0,"EUR":0}}
+```
+
+#### Пополнение — POST /api/v1/wallet/deposit
+
+```bash
+curl -X POST http://localhost:8080/api/v1/wallet/deposit \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"amount":100,"currency":"USD"}'
+```
+
+Ответ: `200 OK`, например: `{"currency":"USD","amount":100}`.
+
+#### Снятие — POST /api/v1/wallet/withdraw
+
+```bash
+curl -X POST http://localhost:8080/api/v1/wallet/withdraw \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"amount":50,"currency":"USD"}'
+```
+
+Ответ: `200 OK`, например: `{"currency":"USD","amount":50}`. При недостатке средств — `400` с телом `{"error":"Insufficient funds"}`.
+
+Поддерживаемые валюты: `USD`, `RUB`, `EUR`.
+
+### Ошибки
+
+    400	invalid amount / invalid currency / invalid json / Insufficient funds
+    401	missing or invalid Authorization (Bearer token)
     404	wallet not found
-    409	insufficient funds
     500	internal error
 
 ### Тесты:

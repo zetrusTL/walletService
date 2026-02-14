@@ -2,30 +2,19 @@ package internal
 
 import (
 	"net/http"
-	"strings"
 
-	"github.com/google/uuid"
+	"wall/internal/http/middleware"
 )
 
-func RegisterRoutes(mux *http.ServeMux, h *Handler) {
-	// POST /api/v1/wallet
-	mux.HandleFunc("/api/v1/wallet", h.HandleWalletOperation)
+func RegisterRoutes(mux *http.ServeMux, h *Handler, jwtSecret []byte) {
+	authMW := middleware.AuthMiddleware(jwtSecret)
 
-	// GET /api/v1/wallets/{uuid}
-	mux.HandleFunc("/api/v1/wallets/", func(w http.ResponseWriter, r *http.Request) {
-		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		if len(parts) != 4 {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
+	// Auth (no middleware)
+	mux.HandleFunc("/api/v1/register", h.HandleRegister)
+	mux.HandleFunc("/api/v1/login", h.HandleLogin)
 
-		idStr := parts[3]
-		walletID, err := uuid.Parse(idStr)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid wallet uuid")
-			return
-		}
-
-		h.HandleGetBalance(w, r, walletID)
-	})
+	// Protected: multi-currency balance (JWT required)
+	mux.Handle("/api/v1/balance", authMW(http.HandlerFunc(h.HandleBalance)))
+	mux.Handle("/api/v1/wallet/deposit", authMW(http.HandlerFunc(h.HandleDeposit)))
+	mux.Handle("/api/v1/wallet/withdraw", authMW(http.HandlerFunc(h.HandleWithdraw)))
 }
