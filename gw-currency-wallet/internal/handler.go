@@ -8,17 +8,19 @@ import (
 
 	"github.com/google/uuid"
 	"wall/internal/grpcclient"
+	"wall/internal/kafka"
 )
 
 type Handler struct {
-	svc           *WalletService
-	authRepo      *AuthRepo
-	jwtSecret     []byte
-	exchangerClient *grpcclient.ExchangerClient
+	svc              *WalletService
+	authRepo         *AuthRepo
+	jwtSecret        []byte
+	exchangerClient  *grpcclient.ExchangerClient
+	largeTxPublisher *kafka.Publisher
 }
 
-func NewHandler(svc *WalletService, authRepo *AuthRepo, jwtSecret []byte, exchangerClient *grpcclient.ExchangerClient) *Handler {
-	return &Handler{svc: svc, authRepo: authRepo, jwtSecret: jwtSecret, exchangerClient: exchangerClient}
+func NewHandler(svc *WalletService, authRepo *AuthRepo, jwtSecret []byte, exchangerClient *grpcclient.ExchangerClient, largeTxPublisher *kafka.Publisher) *Handler {
+	return &Handler{svc: svc, authRepo: authRepo, jwtSecret: jwtSecret, exchangerClient: exchangerClient, largeTxPublisher: largeTxPublisher}
 }
 
 func (h *Handler) HandleWalletOperation(w http.ResponseWriter, r *http.Request) {

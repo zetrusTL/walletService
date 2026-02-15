@@ -102,6 +102,9 @@ func (h *Handler) HandleDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.largeTxPublisher != nil {
+		h.largeTxPublisher.Publish(r.Context(), userID, "deposit", req.Currency, req.Amount)
+	}
 	log.Printf("INFO: user_id=%d currency=%s amount=%.2f type=deposit", userID, req.Currency, req.Amount)
 	writeJSON(w, http.StatusOK, map[string]any{"currency": req.Currency, "amount": newAmount})
 }
@@ -160,6 +163,9 @@ func (h *Handler) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.largeTxPublisher != nil {
+		h.largeTxPublisher.Publish(r.Context(), userID, "withdraw", req.Currency, req.Amount)
+	}
 	log.Printf("INFO: user_id=%d currency=%s amount=%.2f type=withdraw", userID, req.Currency, req.Amount)
 	writeJSON(w, http.StatusOK, map[string]any{"currency": req.Currency, "amount": newAmount})
 }

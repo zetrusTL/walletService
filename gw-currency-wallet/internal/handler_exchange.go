@@ -128,6 +128,9 @@ func (h *Handler) HandleExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.largeTxPublisher != nil {
+		h.largeTxPublisher.Publish(r.Context(), userID, "exchange", req.FromCurrency, req.Amount)
+	}
 	log.Printf("INFO: user_id=%d from=%s to=%s amount=%.2f rate=%.2f exchanged_amount=%.2f source=%s", 
 		userID, req.FromCurrency, req.ToCurrency, req.Amount, rate, exchangedAmount, source) 
 

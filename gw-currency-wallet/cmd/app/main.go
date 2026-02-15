@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"wall/internal"
 	"wall/internal/grpcclient"
+	"wall/internal/kafka"
 )
 
 func main() {
@@ -51,8 +52,13 @@ func main() {
 		defer exchangerClient.Close()
 	}
 
+	largeTxPublisher := kafka.NewPublisher(cfg.KafkaBrokers, cfg.KafkaTopicLargeTx, cfg.LargeTransactionThreshold)
+	if largeTxPublisher != nil {
+		defer largeTxPublisher.Close()
+	}
+
 	mux := http.NewServeMux()
-	h := internal.NewHandler(svc, authRepo, []byte(cfg.JWTSecret), exchangerClient)
+	h := internal.NewHandler(svc, authRepo, []byte(cfg.JWTSecret), exchangerClient, largeTxPublisher)
 	internal.RegisterRoutes(mux, h, []byte(cfg.JWTSecret))
 
 	server := &http.Server{
