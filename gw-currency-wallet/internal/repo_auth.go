@@ -22,7 +22,8 @@ func NewAuthRepo(pool *pgxpool.Pool) *AuthRepo {
 
 func (r *AuthRepo) CreateUser(ctx context.Context, username, email, passwordHash string) (userID int64, err error) {
 	err = r.pool.QueryRow(ctx,
-		`INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3) RETURNING id`,
+		`INSERT INTO users (username, email, password_hash) 
+		VALUES ($1, $2, $3) RETURNING id`,
 		username, email, passwordHash,
 	).Scan(&userID)
 	if err != nil {
@@ -89,7 +90,8 @@ func (r *AuthRepo) GetWalletIDByUserID(ctx context.Context, userID int64) (int64
 
 func (r *AuthRepo) GetBalances(ctx context.Context, walletID int64) (map[string]float64, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT currency, amount FROM balances WHERE wallet_id = $1`,
+		`SELECT currency, amount 
+		FROM balances WHERE wallet_id = $1`,
 		walletID,
 	)
 	if err != nil {
@@ -116,7 +118,10 @@ func (r *AuthRepo) GetBalances(ctx context.Context, walletID int64) (map[string]
 
 func (r *AuthRepo) Deposit(ctx context.Context, walletID int64, currency string, amount float64) (newAmount float64, err error) {
 	err = r.pool.QueryRow(ctx,
-		`UPDATE balances SET amount = amount + $1 WHERE wallet_id = $2 AND currency = $3 RETURNING amount`,
+		`UPDATE balances 
+		SET amount = amount + $1 
+		WHERE wallet_id = $2 AND currency = $3 
+		RETURNING amount`,
 		amount, walletID, currency,
 	).Scan(&newAmount)
 	if err != nil {
@@ -130,7 +135,10 @@ func (r *AuthRepo) Deposit(ctx context.Context, walletID int64, currency string,
 
 func (r *AuthRepo) Withdraw(ctx context.Context, walletID int64, currency string, amount float64) (newAmount float64, err error) {
 	err = r.pool.QueryRow(ctx,
-		`UPDATE balances SET amount = amount - $1 WHERE wallet_id = $2 AND currency = $3 AND amount >= $1 RETURNING amount`,
+		`UPDATE balances 
+		SET amount = amount - $1 
+		WHERE wallet_id = $2 AND currency = $3 AND amount >= $1 
+		RETURNING amount`,
 		amount, walletID, currency,
 	).Scan(&newAmount)
 	if err != nil {
@@ -150,7 +158,9 @@ func (r *AuthRepo) Exchange(ctx context.Context, walletID int64, fromCurrency, t
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	cmd, err := tx.Exec(ctx,
-		`UPDATE balances SET amount = amount - $1 WHERE wallet_id = $2 AND currency = $3 AND amount >= $1`,
+		`UPDATE balances
+		 SET amount = amount - $1 
+		 WHERE wallet_id = $2 AND currency = $3 AND amount >= $1`,
 		debitAmount, walletID, fromCurrency,
 	)
 	if err != nil {
@@ -161,7 +171,9 @@ func (r *AuthRepo) Exchange(ctx context.Context, walletID int64, fromCurrency, t
 	}
 
 	_, err = tx.Exec(ctx,
-		`UPDATE balances SET amount = amount + $1 WHERE wallet_id = $2 AND currency = $3`,
+		`UPDATE balances 
+		SET amount = amount + $1 
+		WHERE wallet_id = $2 AND currency = $3`,
 		creditAmount, walletID, toCurrency,
 	)
 	if err != nil {

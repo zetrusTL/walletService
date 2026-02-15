@@ -90,5 +90,51 @@ services:
     ports:
       - "9090:9090"
 
+  # Kafka KRaft (без Zookeeper). Официальный образ Apache Kafka
+  kafka:
+    image: apache/kafka:latest
+    container_name: kafka
+    hostname: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    ports:
+      - "9094:9092"
+
+  mongo:
+    image: mongo:6
+    container_name: mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongo
+      MONGO_INITDB_ROOT_PASSWORD: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  notification:
+    build:
+      context: .
+      dockerfile: gw-notification/Dockerfile
+    container_name: notification_app
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: large_transactions
+      MONGO_URI: mongodb://mongo:mongo@mongo:27017
+      MONGO_DB: notification
+    depends_on:
+      - kafka
+      - mongo
+
 volumes:
   dbdata:
+  mongo_data:
