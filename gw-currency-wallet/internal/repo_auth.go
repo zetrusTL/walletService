@@ -142,6 +142,39 @@ func (r *AuthRepo) Withdraw(ctx context.Context, walletID int64, currency string
 	return newAmount, nil
 }
 
+func (r *AuthRepo) Exchange(ctx context.Context, walletID int64, fromCurrency, toCurrency string, debitAmount, creditAmount float64) (newBalance map[string]float64, err error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	cmd, err := tx.Exec(ctx,
+		`UPDATE balances SET amount = amount - $1 WHERE wallet_id = $2 AND currency = $3 AND amount >= $1`,
+		debitAmount, walletID, fromCurrency,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("exchange debit: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return nil, ErrInsufficientFunds
+	}
+
+	_, err = tx.Exec(ctx,
+		`UPDATE balances SET amount = amount + $1 WHERE wallet_id = $2 AND currency = $3`,
+		creditAmount, walletID, toCurrency,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("exchange credit: %w", err)
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+
+	return r.GetBalances(ctx, walletID)
+}
+
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {

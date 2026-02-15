@@ -2,6 +2,7 @@ package grpcclient
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -11,8 +12,7 @@ import (
 	exchange "wallet.service/proto/exchange"
 )
 
-// ExchangerClient wraps gRPC connection to exchanger and provides cached rates.
-type ExchangerClient struct {
+type ExchangerClient struct { // клиент для работы с exchanger
 	conn     *grpc.ClientConn
 	client   exchange.ExchangeServiceClient
 	timeout  time.Duration
@@ -23,8 +23,7 @@ type ExchangerClient struct {
 	cacheAt    time.Time
 }
 
-// NewExchangerClient dials the exchanger and returns a client. addr may be empty (then all calls return empty/zero).
-func NewExchangerClient(addr string, timeout, cacheTTL time.Duration) (*ExchangerClient, error) {
+func NewExchangerClient(addr string, timeout, cacheTTL time.Duration) (*ExchangerClient, error) { 
 	if addr == "" {
 		return &ExchangerClient{
 			timeout:  timeout,
@@ -50,19 +49,16 @@ func NewExchangerClient(addr string, timeout, cacheTTL time.Duration) (*Exchange
 	}, nil
 }
 
-// Close closes the gRPC connection.
-func (c *ExchangerClient) Close() error {
+func (c *ExchangerClient) Close() error { // закрытие соединения
 	if c.conn != nil {
 		return c.conn.Close()
 	}
 	return nil
 }
 
-// GetAllRates returns all rates, using cache if valid; otherwise fetches via gRPC. source is "cache" or "grpc".
 func (c *ExchangerClient) GetAllRates(ctx context.Context) (rates map[string]float64, source string, err error) {
 	c.mu.RLock()
 	if !c.cacheAt.IsZero() && time.Since(c.cacheAt) < c.cacheTTL {
-		// Copy map so caller cannot mutate cache
 		out := make(map[string]float64, len(c.cacheRates))
 		for k, v := range c.cacheRates {
 			out[k] = v
@@ -75,7 +71,6 @@ func (c *ExchangerClient) GetAllRates(ctx context.Context) (rates map[string]flo
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// Double-check after acquiring write lock
 	if !c.cacheAt.IsZero() && time.Since(c.cacheAt) < c.cacheTTL {
 		out := make(map[string]float64, len(c.cacheRates))
 		for k, v := range c.cacheRates {
@@ -130,4 +125,32 @@ func (c *ExchangerClient) GetRate(ctx context.Context, from, to string) (float64
 		return 0, err
 	}
 	return resp.GetRate(), nil
+}
+
+func (c *ExchangerClient) GetRateWithSource(ctx context.Context, from, to string) (rate float64, source string, err error) {
+	key := from + "_" + to
+	rates, src, err := c.GetAllRates(ctx)
+	if err != nil {
+		return 0, "", err
+	}
+	if v, ok := rates[key]; ok {
+		return v, src, nil
+	}
+	if c.client == nil {
+		return 0, "", fmt.Errorf("exchange rate %s not found", key)
+	}
+	callCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	resp, err := c.client.GetExchangeRateForCurrency(callCtx, &exchange.CurrencyRequest{
+		FromCurrency: from,
+		ToCurrency:   to,
+	})
+	if err != nil {
+		return 0, "", err
+	}
+	r := resp.GetRate()
+	if r <= 0 {
+		return 0, "", fmt.Errorf("exchange rate %s not found", key)
+	}
+	return r, "grpc", nil
 }

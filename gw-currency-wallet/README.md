@@ -104,9 +104,56 @@ curl -X POST http://localhost:8080/api/v1/wallet/withdraw \
 
 Поддерживаемые валюты: `USD`, `RUB`, `EUR`.
 
+#### Обмен валют — POST /api/v1/exchange
+
+```bash
+curl -X POST http://localhost:8080/api/v1/exchange \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"from_currency":"USD","to_currency":"EUR","amount":100}'
+```
+
+Ответ `200 OK`, например:
+```json
+{
+  "message": "Exchange successful",
+  "rate": 0.92,
+  "exchanged_amount": 92,
+  "new_balance": {"USD": 0, "EUR": 92, "RUB": 0},
+  "source": "cache"
+}
+```
+При недостатке средств по `from_currency` — `400` с `{"error":"insufficient funds"}`. Если курс пары недоступен — `400` с сообщением об ошибке.
+
+### Пример сценария (curl)
+
+Получить токен, пополнить USD, обменять USD→EUR, проверить баланс:
+
+```bash
+# Токен (после регистрации и логина)
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"secret123"}' | jq -r .token)
+
+# Депозит 100 USD
+curl -s -X POST http://localhost:8080/api/v1/wallet/deposit \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"amount":100,"currency":"USD"}'
+
+# Обмен 100 USD → EUR
+curl -s -X POST http://localhost:8080/api/v1/exchange \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"from_currency":"USD","to_currency":"EUR","amount":100}'
+
+# Баланс (должны быть USD=0, EUR=92 при курсе 0.92)
+curl -s http://localhost:8080/api/v1/balance -H "Authorization: Bearer $TOKEN"
+```
+
+Проверка недостатка средств: повторить обмен без повторного депозита — ожидается `400` и `"error":"insufficient funds"`.
+
 ### Ошибки
 
-    400	invalid amount / invalid currency / invalid json / Insufficient funds
+    400	invalid amount / invalid currency / invalid json / Insufficient funds / insufficient funds (exchange) / from_currency and to_currency must differ / exchange rate not available
     401	missing or invalid Authorization (Bearer token)
     404	wallet not found
     500	internal error
