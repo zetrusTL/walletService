@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
+	mongodriver "go.mongodb.org/mongo-driver/mongo"
 
 	"notification/internal/config"
 	"notification/internal/model"
@@ -231,6 +232,14 @@ func saveWithRetry(ctx context.Context, store *mongo.Store, ev *model.LargeTrans
 			log.Printf("saved to mongo transaction_id=%s", ev.TransactionID)
 			return true
 		}
+		if mongodriver.IsDuplicateKeyError(err) {
+			log.Printf("duplicate event ignored")
+			log.Printf("duplicate transaction ignored: %s", ev.TransactionID)
+			if err := reader.CommitMessages(ctx, *msg); err != nil {
+				log.Printf("kafka commit error: %v", err)
+			}
+			return true
+		}
 		log.Printf("mongo insert error (attempt %d/%d): %v", attempt+1, retryAttempts, err)
 		if attempt < retryAttempts-1 {
 			select {
@@ -251,6 +260,11 @@ func saveWithRetrySimple(ctx context.Context, store *mongo.Store, ev *model.Larg
 		err := store.InsertLargeTransaction(ctx, cfg.MongoCollection, ev)
 		if err == nil {
 			log.Printf("saved to mongo transaction_id=%s", ev.TransactionID)
+			return true
+		}
+		if mongodriver.IsDuplicateKeyError(err) {
+			log.Printf("duplicate event ignored")
+			log.Printf("duplicate transaction ignored: %s", ev.TransactionID)
 			return true
 		}
 		log.Printf("mongo insert error (attempt %d/%d): %v", attempt+1, retryAttempts, err)

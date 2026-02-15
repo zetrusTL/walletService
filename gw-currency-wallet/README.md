@@ -29,6 +29,12 @@ HTTP-сервис для управления балансом кошелько�
 - **DB_HOST**, **DB_PORT**, **DB_USER**, **DB_PASSWORD**, **DB_NAME** — подключение к PostgreSQL.
 - **DB_SSLMODE** — опционально (по умолчанию `disable`).
 - **APP_PORT** — порт приложения (по умолчанию `8080`).
+- **KAFKA_BROKERS** — брокеры Kafka (через запятую). Если пусто — события крупных транзакций не публикуются.
+- **KAFKA_TOPIC_LARGE_TRANSACTIONS** — топик для крупных транзакций (по умолчанию `large_transactions`).
+- **LARGE_TRANSACTION_THRESHOLD** — порог суммы для публикации в Kafka (по умолчанию `40000`).
+- **KAFKA_PRODUCER_RETRIES** — число попыток отправки в Kafka (по умолчанию `3`).
+- **KAFKA_PRODUCER_BACKOFF_MS** — базовая задержка между попытками в мс, экспоненциально растёт (по умолчанию `200`).
+- **KAFKA_PRODUCER_TIMEOUT_MS** — таймаут одной попытки отправки в мс (по умолчанию `2000`).
 
 ### Запуск через Docker (из корня монорепо)
 
@@ -124,6 +130,60 @@ curl -X POST http://localhost:8080/api/v1/exchange \
 }
 ```
 При недостатке средств по `from_currency` — `400` с `{"error":"insufficient funds"}`. Если курс пары недоступен — `400` с сообщением об ошибке.
+
+### Крупные транзакции и Kafka
+
+Операции (deposit/withdraw/exchange) с суммой не ниже **LARGE_TRANSACTION_THRESHOLD** после успешного выполнения публикуются в Kafka (топик `large_transactions`) для gw-notification.
+
+- **Retry**: отправка выполняется с повторными попытками (exponential backoff). Конфиг: `KAFKA_PRODUCER_RETRIES`, `KAFKA_PRODUCER_BACKOFF_MS`, `KAFKA_PRODUCER_TIMEOUT_MS`.
+- **Ответ клиенту не зависит от Kafka**: если после всех попыток публикация не удалась, в лог пишется только WARN с `transaction_id` и причиной; HTTP-ответ остаётся успешным (финансовая операция уже выполнена).
+- **At-least-once + идемпотентность**: Kafka даёт at-least-once доставку (сообщение может прийти повторно). В gw-notification коллекция событий имеет уникальный индекс по `transaction_id`, поэтому повторная доставка не создаёт дубликатов — повторные события игнорируются. Безопасно увеличивать число попыток и повторно слать при сбоях.
+
+#### Проверка: Kafka недоступен → 200 OK + WARN в логах; Kafka снова доступен → publish успешен
+
+Убеждаемся, что при падении Kafka депозит всё равно возвращает 200, а после поднятия Kafka сообщения снова уходят.
+
+1. Запустить стек (из корня репозитория):
+   ```bash
+   docker compose up -d
+   ```
+2. Получить токен и сделать депозит на сумму ≥ порога (по умолчанию 40000), чтобы убедиться, что всё работает:
+   ```bash
+   TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/login -H "Content-Type: application/json" -d '{"username":"alice","password":"secret123"}' | jq -r .token)
+   curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8080/api/v1/wallet/deposit -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"amount":40000,"currency":"RUB"}'
+   ```
+   Ожидается код `200`.
+
+3. Остановить Kafka (имитация сбоя):
+   ```bash
+   docker stop kafka
+   ```
+4. Снова сделать депозит 40000:
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8080/api/v1/wallet/deposit -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"amount":40000,"currency":"RUB"}'
+   ```
+   Ожидается код `200` (операция прошла, ответ клиенту успешный). В логах wallet должен появиться WARN о неудачной отправке в Kafka:
+   ```bash
+   docker logs wallet_app 2>&1 | tail -20
+   ```
+   Ищите строку вида: `WARN: kafka publish failed transaction_id=...`
+
+5. Запустить Kafka снова:
+   ```bash
+   docker start kafka
+   ```
+   Подождать несколько секунд, пока брокер поднимется.
+
+6. Ещё раз депозит 40000:
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8080/api/v1/wallet/deposit -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"amount":40000,"currency":"RUB"}'
+   ```
+   Ожидается `200`. В логах wallet — успешная публикация (`kafka published large_transaction ...` или `INFO: published after retry ...`, если сработала вторая/третья попытка).
+
+7. (Опционально) Проверить, что notification получил событие — в Mongo появилась запись:
+   ```bash
+   docker exec -it mongo mongosh -u mongo -p mongo --authenticationDatabase admin --eval 'db.getSiblingDB("notification").large_transactions.find().sort({created_at:-1}).limit(3).pretty()'
+   ```
 
 ### Пример сценария (curl)
 

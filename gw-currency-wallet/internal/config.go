@@ -3,24 +3,28 @@ package internal
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
 type Config struct {
-	AppPort                  string
-	JWTSecret                string
-	DBHost                   string
-	DBPort                   string
-	DBUser                   string
-	DBPassword               string
-	DBName                   string
-	DBSSLMode                string
-	ExchangerAddr            string
-	ExchangerTimeout         time.Duration
-	ExchangeCacheTTL         time.Duration
-	KafkaBrokers             string
-	KafkaTopicLargeTx        string
+	AppPort                   string
+	JWTSecret                 string
+	DBHost                    string
+	DBPort                    string
+	DBUser                    string
+	DBPassword                string
+	DBName                    string
+	DBSSLMode                 string
+	ExchangerAddr             string
+	ExchangerTimeout          time.Duration
+	ExchangeCacheTTL          time.Duration
+	KafkaBrokers              string
+	KafkaTopicLargeTx         string
 	LargeTransactionThreshold float64
+	KafkaProducerRetries      int
+	KafkaProducerBackoffMs    int
+	KafkaProducerTimeoutMs    int
 }
 
 func LoadConfig() (Config, error) {
@@ -39,6 +43,9 @@ func LoadConfig() (Config, error) {
 		KafkaBrokers:              os.Getenv("KAFKA_BROKERS"),
 		KafkaTopicLargeTx:         os.Getenv("KAFKA_TOPIC_LARGE_TRANSACTIONS"),
 		LargeTransactionThreshold: parseFloat(os.Getenv("LARGE_TRANSACTION_THRESHOLD"), 40000),
+		KafkaProducerRetries:      parseInt(os.Getenv("KAFKA_PRODUCER_RETRIES"), 3),
+		KafkaProducerBackoffMs:    parseInt(os.Getenv("KAFKA_PRODUCER_BACKOFF_MS"), 200),
+		KafkaProducerTimeoutMs:    parseInt(os.Getenv("KAFKA_PRODUCER_TIMEOUT_MS"), 2000),
 	}
 	if cfg.KafkaTopicLargeTx == "" {
 		cfg.KafkaTopicLargeTx = "large_transactions"
@@ -81,6 +88,17 @@ func parseFloat(s string, defaultVal float64) float64 {
 		return defaultVal
 	}
 	return f
+}
+
+func parseInt(s string, defaultVal int) int {
+	if s == "" {
+		return defaultVal
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return defaultVal
+	}
+	return n
 }
 
 func (c Config) PostgresDSN() string {

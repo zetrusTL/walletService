@@ -38,6 +38,18 @@ func Connect(ctx context.Context, uri string, dbName string) (*Store, error) {
 	}, nil
 }
 
+// EnsureLargeTransactionsIndex создаёт уникальный индекс по transaction_id в коллекции.
+// Нужен для идемпотентности при at-least-once доставке Kafka (дубликаты отбрасываются по E11000).
+func (s *Store) EnsureLargeTransactionsIndex(ctx context.Context, collection string) error {
+	coll := s.Database.Collection(collection)
+	idx := mongo.IndexModel{
+		Keys:    bson.D{{Key: "transaction_id", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	}
+	_, err := coll.Indexes().CreateOne(ctx, idx)
+	return err
+}
+
 const offsetsCollection = "consumer_offsets"
 
 func (s *Store) InsertLargeTransaction(ctx context.Context, collection string, ev *model.LargeTransactionEvent) error {

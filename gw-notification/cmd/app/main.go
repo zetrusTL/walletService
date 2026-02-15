@@ -38,6 +38,13 @@ func main() {
 
 	log.Print("mongo ping OK")
 
+	ctxIdx, cancelIdx := context.WithTimeout(context.Background(), 15*time.Second)
+	if err := store.EnsureLargeTransactionsIndex(ctxIdx, cfg.MongoCollection); err != nil {
+		log.Fatalf("ensure large_transactions index: %v", err)
+	}
+	cancelIdx()
+	log.Print("mongo index large_transactions.transaction_id OK")
+
 	// Даём Kafka время полностью подняться после healthcheck.
 	time.Sleep(5 * time.Second)
 

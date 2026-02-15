@@ -52,7 +52,8 @@ func main() {
 		defer exchangerClient.Close()
 	}
 
-	largeTxPublisher := kafka.NewPublisher(cfg.KafkaBrokers, cfg.KafkaTopicLargeTx, cfg.LargeTransactionThreshold)
+	largeTxPublisher := kafka.NewPublisher(cfg.KafkaBrokers, cfg.KafkaTopicLargeTx, cfg.LargeTransactionThreshold,
+		cfg.KafkaProducerRetries, cfg.KafkaProducerBackoffMs, cfg.KafkaProducerTimeoutMs)
 	if largeTxPublisher != nil {
 		defer largeTxPublisher.Close()
 	}

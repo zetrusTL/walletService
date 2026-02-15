@@ -23,13 +23,17 @@ type LargeTransactionEvent struct {
 
 // Publisher публикует события крупных транзакций в Kafka.
 type Publisher struct {
-	writer    *kafka.Writer
-	topic     string
-	threshold float64
+	writer             *kafka.Writer
+	topic              string
+	threshold          float64
+	retries            int
+	backoffMs          int
+	timeoutPerAttempt  time.Duration
 }
 
 // NewPublisher создаёт publisher. Если brokers пустой — возвращает nil (publish не делаем).
-func NewPublisher(brokers string, topic string, threshold float64) *Publisher {
+// retries — число попыток (включая первую), backoffMs — базовая задержка в мс (экспонента: backoff*2^attempt), timeoutPerAttemptMs — таймаут на одну попытку в мс.
+func NewPublisher(brokers string, topic string, threshold float64, retries, backoffMs, timeoutPerAttemptMs int) *Publisher {
 	brokerList := strings.Split(brokers, ",")
 	var trimmed []string
 	for _, b := range brokerList {
@@ -40,17 +44,30 @@ func NewPublisher(brokers string, topic string, threshold float64) *Publisher {
 	if len(trimmed) == 0 || topic == "" {
 		return nil
 	}
+	if retries <= 0 {
+		retries = 3
+	}
+	if backoffMs <= 0 {
+		backoffMs = 200
+	}
+	if timeoutPerAttemptMs <= 0 {
+		timeoutPerAttemptMs = 2000
+	}
 	return &Publisher{
 		writer: kafka.NewWriter(kafka.WriterConfig{
 			Brokers: trimmed,
 			Topic:   topic,
 		}),
-		topic:     topic,
-		threshold: threshold,
+		topic:              topic,
+		threshold:          threshold,
+		retries:            retries,
+		backoffMs:          backoffMs,
+		timeoutPerAttempt:  time.Duration(timeoutPerAttemptMs) * time.Millisecond,
 	}
 }
 
 // Publish отправляет событие в Kafka, если amount >= threshold. Иначе ничего не делает.
+// При ошибке — retry с exponential backoff; при полном провале — только WARN, ответ клиенту не ломается.
 func (p *Publisher) Publish(ctx context.Context, userID int64, opType, currency string, amount float64) {
 	if p == nil || amount < p.threshold {
 		return
@@ -68,11 +85,36 @@ func (p *Publisher) Publish(ctx context.Context, userID int64, opType, currency 
 		log.Printf("kafka marshal large transaction: %v", err)
 		return
 	}
-	if err := p.writer.WriteMessages(ctx, kafka.Message{Value: payload}); err != nil {
-		log.Printf("kafka write large_transactions: %v", err)
-		return
+	msg := kafka.Message{Value: payload}
+	var lastErr error
+	for attempt := 0; attempt < p.retries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(p.backoffMs) * time.Millisecond
+			for i := 1; i < attempt; i++ {
+				backoff *= 2
+			}
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				log.Printf("WARN: kafka publish aborted transaction_id=%s: context done", ev.TransactionID)
+				return
+			}
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, p.timeoutPerAttempt)
+		lastErr = p.writer.WriteMessages(attemptCtx, msg)
+		cancel()
+		if lastErr == nil {
+			if attempt > 0 {
+				log.Printf("INFO: published after retry (attempts=%d) transaction_id=%s user_id=%d type=%s amount=%g %s",
+					attempt+1, ev.TransactionID, ev.UserID, ev.Type, ev.Amount, ev.Currency)
+			} else {
+				log.Printf("kafka published large_transaction transaction_id=%s user_id=%d type=%s amount=%g %s",
+					ev.TransactionID, ev.UserID, ev.Type, ev.Amount, ev.Currency)
+			}
+			return
+		}
 	}
-	log.Printf("kafka published large_transaction transaction_id=%s user_id=%d type=%s amount=%g %s", ev.TransactionID, ev.UserID, ev.Type, ev.Amount, ev.Currency)
+	log.Printf("WARN: kafka publish failed transaction_id=%s: %v", ev.TransactionID, lastErr)
 }
 
 // Close закрывает writer.
