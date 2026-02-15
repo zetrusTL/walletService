@@ -5,11 +5,12 @@ services:
     environment:
       POSTGRES_USER: wallet
       POSTGRES_PASSWORD: wallet
-      POSTGRES_DB: wallet
+      POSTGRES_DB: postgres
     ports:
       - "5433:5432"
     volumes:
       - dbdata:/var/lib/postgresql/data
+      - ./init/01-create-exchanger-db.sh:/docker-entrypoint-initdb.d/01-create-exchanger-db.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U wallet -d wallet"]
       interval: 3s
@@ -32,6 +33,22 @@ services:
       - ./migrations:/migrations:ro
     command: ["/bin/sh", "/migrations/run-migrations.sh"]
 
+  exchanger_migrator:
+    image: postgres:16-alpine
+    container_name: exchanger_migrator
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: wallet
+      PGPASSWORD: wallet
+      PGDATABASE: exchanger
+    volumes:
+      - ./gw-exchanger/migrations:/migrations:ro
+    command: ["/bin/sh", "/migrations/run-migrations.sh"]
+
   app:
     build:
       context: ./gw-currency-wallet
@@ -51,6 +68,24 @@ services:
         condition: service_completed_successfully
     ports:
       - "8080:8080"
+
+  exchanger:
+    build:
+      context: .
+      dockerfile: gw-exchanger/Dockerfile
+    container_name: exchanger_app
+    env_file:
+      - gw-exchanger/config.env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+    depends_on:
+      db:
+        condition: service_healthy
+      exchanger_migrator:
+        condition: service_completed_successfully
+    ports:
+      - "9090:9090"
 
 volumes:
   dbdata:
