@@ -51,14 +51,15 @@ services:
 
   app:
     build:
-      context: ./gw-currency-wallet
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: gw-currency-wallet/Dockerfile
     container_name: wallet_app
     env_file:
       - gw-currency-wallet/config.env
     environment:
       DB_HOST: db
       DB_PORT: 5432
+      EXCHANGER_ADDR: exchanger:9090
     entrypoint: ["sh", "-c"]
     command: ["echo '=== app wrapper ==='; /app/wallet 2>&1; e=$$?; echo 'Exit code:' $$e; exit $$e"]
     depends_on:
@@ -66,6 +67,8 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
+      exchanger:
+        condition: service_started
     ports:
       - "8080:8080"
 

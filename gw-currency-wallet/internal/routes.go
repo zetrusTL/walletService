@@ -17,4 +17,5 @@ func RegisterRoutes(mux *http.ServeMux, h *Handler, jwtSecret []byte) {
 	mux.Handle("/api/v1/balance", authMW(http.HandlerFunc(h.HandleBalance)))
 	mux.Handle("/api/v1/wallet/deposit", authMW(http.HandlerFunc(h.HandleDeposit)))
 	mux.Handle("/api/v1/wallet/withdraw", authMW(http.HandlerFunc(h.HandleWithdraw)))
+	mux.Handle("/api/v1/exchange/rates", authMW(http.HandlerFunc(h.HandleExchangeRates)))
 }

@@ -3,29 +3,36 @@ package internal
 import (
 	"fmt"
 	"os"
+	"time"
 )
 
 type Config struct {
-	AppPort    string
-	JWTSecret  string
-	DBHost     string
-	DBPort     string
-	DBUser     string
-	DBPassword string
-	DBName     string
-	DBSSLMode  string
+	AppPort         string
+	JWTSecret       string
+	DBHost          string
+	DBPort          string
+	DBUser          string
+	DBPassword      string
+	DBName          string
+	DBSSLMode       string
+	ExchangerAddr   string
+	ExchangerTimeout time.Duration
+	ExchangeCacheTTL time.Duration
 }
 
 func LoadConfig() (Config, error) {
 	cfg := Config{
-		AppPort:    os.Getenv("APP_PORT"),
-		JWTSecret:  os.Getenv("JWT_SECRET"),
-		DBHost:     os.Getenv("DB_HOST"),
-		DBPort:     os.Getenv("DB_PORT"),
-		DBUser:     os.Getenv("DB_USER"),
-		DBPassword: os.Getenv("DB_PASSWORD"),
-		DBName:     os.Getenv("DB_NAME"),
-		DBSSLMode:  os.Getenv("DB_SSLMODE"),
+		AppPort:         os.Getenv("APP_PORT"),
+		JWTSecret:       os.Getenv("JWT_SECRET"),
+		DBHost:          os.Getenv("DB_HOST"),
+		DBPort:          os.Getenv("DB_PORT"),
+		DBUser:          os.Getenv("DB_USER"),
+		DBPassword:      os.Getenv("DB_PASSWORD"),
+		DBName:          os.Getenv("DB_NAME"),
+		DBSSLMode:       os.Getenv("DB_SSLMODE"),
+		ExchangerAddr:   os.Getenv("EXCHANGER_ADDR"),
+		ExchangerTimeout: parseDuration(os.Getenv("EXCHANGER_TIMEOUT"), 2*time.Second),
+		ExchangeCacheTTL: parseDuration(os.Getenv("EXCHANGE_CACHE_TTL"), 10*time.Second),
 	}
 
 	if cfg.AppPort == "" {
@@ -43,6 +50,17 @@ func LoadConfig() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func parseDuration(s string, defaultVal time.Duration) time.Duration {
+	if s == "" {
+		return defaultVal
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return defaultVal
+	}
+	return d
 }
 
 func (c Config) PostgresDSN() string {

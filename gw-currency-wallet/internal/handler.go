@@ -3,19 +3,22 @@ package internal
 import (
 	"encoding/json"
 	"errors"
-	"net/http"
 	"log"
+	"net/http"
+
 	"github.com/google/uuid"
+	"wall/internal/grpcclient"
 )
 
 type Handler struct {
-	svc       *WalletService
-	authRepo  *AuthRepo
-	jwtSecret []byte
+	svc           *WalletService
+	authRepo      *AuthRepo
+	jwtSecret     []byte
+	exchangerClient *grpcclient.ExchangerClient
 }
 
-func NewHandler(svc *WalletService, authRepo *AuthRepo, jwtSecret []byte) *Handler {
-	return &Handler{svc: svc, authRepo: authRepo, jwtSecret: jwtSecret}
+func NewHandler(svc *WalletService, authRepo *AuthRepo, jwtSecret []byte, exchangerClient *grpcclient.ExchangerClient) *Handler {
+	return &Handler{svc: svc, authRepo: authRepo, jwtSecret: jwtSecret, exchangerClient: exchangerClient}
 }
 
 func (h *Handler) HandleWalletOperation(w http.ResponseWriter, r *http.Request) {

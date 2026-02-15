@@ -1,13 +1,12 @@
-
+# Build context must be repo root (.). Proto is at /proto for replace wallet.service/proto => ../proto
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
-COPY go.mod go.sum ./
+COPY gw-currency-wallet/go.mod gw-currency-wallet/go.sum ./
+COPY proto /proto
+COPY gw-currency-wallet ./
 RUN go mod download
-
-COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o wallet ./cmd/app
-
 
 FROM alpine:3.20
 

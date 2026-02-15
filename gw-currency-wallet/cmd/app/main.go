@@ -9,8 +9,10 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	"wall/internal"
+
 	"github.com/jackc/pgx/v5/pgxpool"
+	"wall/internal"
+	"wall/internal/grpcclient"
 )
 
 func main() {
@@ -34,12 +36,23 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
-	repo := internal.NewPostgresRepo(pool) 
+	repo := internal.NewPostgresRepo(pool)
 	svc := internal.NewWalletService(repo)
 	authRepo := internal.NewAuthRepo(pool)
 
+	var exchangerClient *grpcclient.ExchangerClient
+	if cfg.ExchangerAddr != "" {
+		var errConn error
+		exchangerClient, errConn = grpcclient.NewExchangerClient(cfg.ExchangerAddr, cfg.ExchangerTimeout, cfg.ExchangeCacheTTL)
+		if errConn != nil {
+			log.Printf("exchanger gRPC client: %v", errConn)
+			os.Exit(1)
+		}
+		defer exchangerClient.Close()
+	}
+
 	mux := http.NewServeMux()
-	h := internal.NewHandler(svc, authRepo, []byte(cfg.JWTSecret))
+	h := internal.NewHandler(svc, authRepo, []byte(cfg.JWTSecret), exchangerClient)
 	internal.RegisterRoutes(mux, h, []byte(cfg.JWTSecret))
 
 	server := &http.Server{
