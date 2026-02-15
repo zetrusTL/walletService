@@ -14,6 +14,7 @@ type Config struct {
 	MongoURI          string
 	MongoDB           string
 	MongoCollection   string
+	HealthPort        string // порт для GET /health
 }
 
 func Load() (*Config, error) {
@@ -25,6 +26,7 @@ func Load() (*Config, error) {
 		MongoURI:         os.Getenv("MONGO_URI"),
 		MongoDB:          os.Getenv("MONGO_DB"),
 		MongoCollection:  os.Getenv("MONGO_COLLECTION"),
+		HealthPort:       os.Getenv("HEALTH_PORT"),
 	}
 	if cfg.KafkaBrokers == "" {
 		cfg.KafkaBrokers = "kafka:9092"
@@ -40,6 +42,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.MongoCollection == "" {
 		cfg.MongoCollection = "large_transactions"
+	}
+	if cfg.HealthPort == "" {
+		cfg.HealthPort = "8081"
 	}
 	if cfg.MongoURI == "" {
 		return nil, fmt.Errorf("missing required env MONGO_URI")

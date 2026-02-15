@@ -211,6 +211,21 @@ curl -s http://localhost:8080/api/v1/balance -H "Authorization: Bearer $TOKEN"
 
 Проверка недостатка средств: повторить обмен без повторного депозита — ожидается `400` и `"error":"insufficient funds"`.
 
+### Health endpoint — GET /health
+
+Проверяет доступность зависимостей: DB, exchanger (gRPC), Kafka.
+
+```bash
+curl -s http://localhost:8080/health
+```
+
+Пример ответа при успехе:
+```json
+{"status":"ok","db":"ok","exchanger":"ok","kafka":"ok"}
+```
+
+При недоступности любой зависимости — `status: "degraded"`, HTTP 503, поля с ошибкой: `"error"`.
+
 ### Ошибки
 
     400	invalid amount / invalid currency / invalid json / Insufficient funds / insufficient funds (exchange) / from_currency and to_currency must differ / exchange rate not available

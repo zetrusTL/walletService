@@ -19,6 +19,7 @@ Kafka гарантирует **at-least-once** доставку: одно и т�
 | MONGO_URI | — | URI MongoDB (обязательно) |
 | MONGO_DB | notification | База данных |
 | MONGO_COLLECTION | large_transactions | Коллекция |
+| HEALTH_PORT | 8081 | Порт для GET /health |
 
 ## Формат сообщения (JSON)
 
@@ -36,6 +37,21 @@ Wallet публикует `LargeTransactionEvent`:
 ```bash
 docker-compose up -d notification
 ```
+
+## Health endpoint — GET /health
+
+Проверяет доступность Mongo и Kafka. По умолчанию слушает порт **8081**.
+
+```bash
+curl -s http://localhost:8081/health
+```
+
+Пример ответа при успехе:
+```json
+{"status":"ok","mongo":"ok","kafka":"ok"}
+```
+
+При недоступности — `status: "degraded"`, HTTP 503. Переменная `HEALTH_PORT` — порт (по умолчанию 8081).
 
 ## Проверка
 

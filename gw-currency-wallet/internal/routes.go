@@ -9,6 +9,9 @@ import (
 func RegisterRoutes(mux *http.ServeMux, h *Handler, jwtSecret []byte) {
 	authMW := middleware.AuthMiddleware(jwtSecret)
 
+	// Health (no auth)
+	mux.HandleFunc("/health", h.HandleHealth)
+
 	// Auth (no middleware)
 	mux.HandleFunc("/api/v1/register", h.HandleRegister)
 	mux.HandleFunc("/api/v1/login", h.HandleLogin)

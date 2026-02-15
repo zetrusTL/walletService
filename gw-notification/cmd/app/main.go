@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,6 +11,7 @@ import (
 
 	"notification/internal/config"
 	"notification/internal/consumer"
+	"notification/internal/health"
 	"notification/internal/storage/mongo"
 )
 
@@ -56,6 +58,23 @@ func main() {
 	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
+	// HTTP server для /health
+	healthHandler := health.NewHandler(store.Client, cfg)
+	healthMux := http.NewServeMux()
+	healthMux.Handle("/health", healthHandler)
+	healthServer := &http.Server{
+		Addr:         ":" + cfg.HealthPort,
+		Handler:      healthMux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+	go func() {
+		log.Printf("health server started on :%s", cfg.HealthPort)
+		if err := healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("health server: %v", err)
+		}
+	}()
+
 	done := make(chan struct{})
 	go func() {
 		consumer.Run(ctx, cfg, store)
@@ -68,6 +87,12 @@ func main() {
 
 	log.Println("shutting down...")
 	cancel()
+
+	// Graceful shutdown health server
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_ = healthServer.Shutdown(shutdownCtx)
+	shutdownCancel()
+
 	<-done
 
 	log.Println("bye")

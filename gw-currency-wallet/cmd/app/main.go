@@ -59,7 +59,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	h := internal.NewHandler(svc, authRepo, []byte(cfg.JWTSecret), exchangerClient, largeTxPublisher)
+	h := internal.NewHandler(svc, authRepo, []byte(cfg.JWTSecret), pool, exchangerClient, largeTxPublisher)
 	internal.RegisterRoutes(mux, h, []byte(cfg.JWTSecret))
 
 	server := &http.Server{

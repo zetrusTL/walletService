@@ -2,17 +2,130 @@
 
 Монорепо для сервисов: gw-currency-wallet, gw-exchanger, gw-notification.
 
-## Запуск wallet и Postgres
+## How to run
 
 Из корня репозитория:
 
 ```bash
-docker compose up --build
+docker-compose up --build
 ```
 
-Сервис wallet будет доступен на `http://localhost:8080`, Postgres — на порту `5433`.
+Сервисы: wallet — `http://localhost:8080`, exchanger gRPC — `:9090`, notification health — `http://localhost:8081`, Postgres — `:5433`, Mongo — `:27017`.
 
-Подробнее см. [gw-currency-wallet/README.md](gw-currency-wallet/README.md).
+### Register / Login
+
+```bash
+# Регистрация
+curl -X POST http://localhost:8080/api/v1/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","email":"alice@example.com","password":"secret123"}'
+
+# Логин (сохранить токен)
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"secret123"}' | jq -r .token)
+```
+
+### Balance / Deposit / Withdraw
+
+```bash
+# Баланс
+curl -s http://localhost:8080/api/v1/balance -H "Authorization: Bearer $TOKEN"
+
+# Депозит
+curl -X POST http://localhost:8080/api/v1/wallet/deposit \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"amount":100,"currency":"USD"}'
+
+# Снятие
+curl -X POST http://localhost:8080/api/v1/wallet/withdraw \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"amount":50,"currency":"USD"}'
+```
+
+### Exchange
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/exchange \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"from_currency":"USD","to_currency":"EUR","amount":100}'
+```
+
+В ответе поле `source`: **`grpc`** — курс взят с exchanger по gRPC, **`cache`** — из локального кеша (TTL 10s по умолчанию).
+
+Подробнее: [gw-currency-wallet/README.md](gw-currency-wallet/README.md).
+
+---
+
+## How to test
+
+### 1. Large transaction → Mongo
+
+Депозит ≥40000 (LARGE_TRANSACTION_THRESHOLD) публикует событие в Kafka; notification сохраняет в Mongo.
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/login -H "Content-Type: application/json" -d '{"username":"alice","password":"secret123"}' | jq -r .token)
+curl -X POST http://localhost:8080/api/v1/wallet/deposit \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"amount":40000,"currency":"RUB"}'
+
+# Проверка в Mongo
+docker exec -it mongo mongosh -u mongo -p mongo --authenticationDatabase admin --eval \
+  'db.getSiblingDB("notification").large_transactions.find().sort({created_at:-1}).limit(3).pretty()'
+```
+
+### 2. Idempotency
+
+Повторно отправленное событие (duplicate) не создаёт дубликат: коллекция имеет уникальный индекс по `transaction_id`. При at-least-once доставке Kafka повторные сообщения игнорируются (E11000 duplicate key).
+
+### 3. Retry (Kafka unavailable)
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/login -H "Content-Type: application/json" -d '{"username":"alice","password":"secret123"}' | jq -r .token)
+
+# Остановить Kafka
+docker stop kafka
+
+# Депозит 40000 — ожидается 200 OK, в логах WARN
+curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8080/api/v1/wallet/deposit \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"amount":40000,"currency":"RUB"}'
+# → 200
+docker logs wallet_app 2>&1 | tail -10
+# → WARN: kafka publish failed transaction_id=...
+
+# Запустить Kafka
+docker start kafka
+# Подождать 5–10 сек
+
+# Повторный депозит 40000 — сообщение опубликовано
+curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8080/api/v1/wallet/deposit \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"amount":40000,"currency":"RUB"}'
+# → 200
+docker logs wallet_app 2>&1 | tail -5
+# → kafka published large_transaction ...
+```
+
+---
+
+## Architecture
+
+- **wallet** → exchanger (gRPC) → Postgres — получение курсов валют и учёт баланса
+- **wallet** → Kafka → **notification** → Mongo — события крупных транзакций (≥ порога)
+
+Kafka даёт **at-least-once** доставку; notification обеспечивает **идемпотентность** через уникальный индекс по `transaction_id` — дубликаты не создаются.
+
+**Health endpoints**: `GET /health` — wallet (8080), notification (8081). Проверяют DB, exchanger, Kafka / Mongo, Kafka.
+
+---
+
+## Health check
+
+| Сервис | URL | Проверяет |
+|--------|-----|-----------|
+| wallet | `curl http://localhost:8080/health` | DB, exchanger gRPC, Kafka |
+| notification | `curl http://localhost:8081/health` | Mongo, Kafka |
+
+При успехе: `{"status":"ok", ...}`. Docker Compose healthcheck использует эти endpoint'ы для определения готовности контейнеров.
 
 ## Генерация gRPC-кода (proto/exchange)
 

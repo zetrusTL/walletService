@@ -24,6 +24,7 @@ type LargeTransactionEvent struct {
 // Publisher публикует события крупных транзакций в Kafka.
 type Publisher struct {
 	writer             *kafka.Writer
+	brokers            []string
 	topic              string
 	threshold          float64
 	retries            int
@@ -58,12 +59,27 @@ func NewPublisher(brokers string, topic string, threshold float64, retries, back
 			Brokers: trimmed,
 			Topic:   topic,
 		}),
+		brokers:            trimmed,
 		topic:              topic,
 		threshold:          threshold,
 		retries:            retries,
 		backoffMs:          backoffMs,
 		timeoutPerAttempt:  time.Duration(timeoutPerAttemptMs) * time.Millisecond,
 	}
+}
+
+// Ping проверяет доступность Kafka (подключение к первому брокеру).
+func (p *Publisher) Ping(ctx context.Context) error {
+	if p == nil || len(p.brokers) == 0 {
+		return nil // Kafka не настроен
+	}
+	dialer := &kafka.Dialer{Timeout: 3 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", p.brokers[0])
+	if err != nil {
+		return err
+	}
+	_ = conn.Close()
+	return nil
 }
 
 // Publish отправляет событие в Kafka, если amount >= threshold. Иначе ничего не делает.
