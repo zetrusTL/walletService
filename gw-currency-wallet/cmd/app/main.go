@@ -34,7 +34,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
-	repo := internal.NewPostgresRepo(pool)
+	repo := internal.NewPostgresRepo(pool) 
 	svc := internal.NewWalletService(repo)
 	authRepo := internal.NewAuthRepo(pool)
 

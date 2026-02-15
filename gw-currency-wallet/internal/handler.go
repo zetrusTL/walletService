@@ -24,7 +24,7 @@ func (h *Handler) HandleWalletOperation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req OperationRequest											//читает json
+	var req OperationRequest											
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields() 
 	if err := dec.Decode(&req); err != nil {
