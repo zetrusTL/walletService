@@ -3,3 +3,5 @@ go 1.25.4
 use ./gw-currency-wallet
 use ./gw-exchanger
 use ./gw-notification
+use ./pv-producer
+use ./pv-aggregator
