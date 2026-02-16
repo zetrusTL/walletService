@@ -64,6 +64,16 @@ func (b *Buffer) GetAndClear() []BufferedMessage {
 	return result
 }
 
+// PutBack prepends failed messages for retry on next flush. Used when ClickHouse insert fails.
+func (b *Buffer) PutBack(messages []BufferedMessage) {
+	if len(messages) == 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.messages = append(messages, b.messages...)
+}
+
 func (b *Buffer) Size() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()

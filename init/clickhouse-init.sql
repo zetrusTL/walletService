@@ -37,14 +37,17 @@ ORDER BY (window_start, page_id)
 TTL window_start + INTERVAL 7 DAY;
 
 -- 3. Hour aggregation table (SummingMergeTree)
-CREATE TABLE IF NOT EXISTS page_views_agg_hour
+-- Store raw sums for correct merge; use page_views_agg_hour_read view for avg_duration/bounce_rate
+DROP VIEW IF EXISTS page_views_minute_to_hour;
+DROP TABLE IF EXISTS page_views_agg_hour;
+CREATE TABLE page_views_agg_hour
 (
-    window_start  DateTime,
-    page_id       String,
-    view_count    UInt64,
-    avg_duration  Float32,
-    unique_users  UInt64,
-    bounce_rate   Float32
+    window_start   DateTime,
+    page_id        String,
+    view_count     UInt64,
+    total_duration UInt64,
+    bounce_count   UInt64,
+    unique_users   UInt64
 ) ENGINE = SummingMergeTree()
 ORDER BY (window_start, page_id);
 
@@ -74,16 +77,28 @@ FROM page_views_raw
 GROUP BY window_start, page_id;
 
 -- Materialized view: minute -> hour aggregation
--- Note: This MV reads from AggregatingMergeTree, so we need to use -Merge functions
-CREATE MATERIALIZED VIEW IF NOT EXISTS page_views_minute_to_hour
+-- AggregatingMergeTree stores states; must use -Merge to aggregate before inserting into SummingMergeTree
+CREATE MATERIALIZED VIEW page_views_minute_to_hour
 TO page_views_agg_hour
 AS
 SELECT
     toStartOfHour(window_start) AS window_start,
     page_id,
-    sumMerge(view_count) as view_count,
-    if(sumMerge(view_count) > 0, toFloat32(sumMerge(total_duration)) / toFloat32(sumMerge(view_count)), 0) as avg_duration,
-    uniqMerge(unique_users) as unique_users,
-    if(sumMerge(view_count) > 0, toFloat32(sumMerge(bounce_count)) * 100.0 / toFloat32(sumMerge(view_count)), 0) as bounce_rate
+    sumMerge(view_count) AS view_count,
+    sumMerge(total_duration) AS total_duration,
+    sumMerge(bounce_count) AS bounce_count,
+    uniqMerge(unique_users) AS unique_users
 FROM page_views_agg_minute
 GROUP BY window_start, page_id;
+
+-- View for querying with computed avg_duration and bounce_rate (Float32)
+CREATE OR REPLACE VIEW page_views_agg_hour_read AS
+SELECT
+    window_start,
+    page_id,
+    view_count,
+    total_duration,
+    if(view_count > 0, toFloat32(total_duration) / toFloat32(view_count), toFloat32(0)) AS avg_duration,
+    unique_users,
+    if(view_count > 0, toFloat32(bounce_count) * 100.0 / toFloat32(view_count), toFloat32(0)) AS bounce_rate
+FROM page_views_agg_hour;

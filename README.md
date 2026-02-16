@@ -241,8 +241,8 @@ GROUP BY window_start, page_id
 ORDER BY window_start DESC
 LIMIT 20;
 
-# Проверить часовые агрегации
-SELECT * FROM page_views_agg_hour ORDER BY window_start DESC LIMIT 10;
+# Проверить часовые агрегации (с avg_duration и bounce_rate)
+SELECT * FROM page_views_agg_hour_read ORDER BY window_start DESC LIMIT 10;
 
 # Проверить ошибки (DLQ)
 SELECT count() FROM processing_errors;

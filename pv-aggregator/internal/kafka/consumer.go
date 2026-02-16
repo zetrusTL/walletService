@@ -151,13 +151,19 @@ func (c *Consumer) Run(ctx context.Context) error {
 		// Parse and validate
 		ev, validationErr := c.parseAndValidate(msg.Value)
 		if validationErr != nil {
-			// Send to DLQ
-			if err := c.handleError(ctx, msg, validationErr.Error()); err != nil {
-				log.Printf("DLQ send failed: %v", err)
-				// Don't commit if DLQ failed
-				continue
+			// DLQ path: commit only after BOTH DLQ send AND processing_errors insert succeed
+			// Block and retry until both succeed - do not skip to next message
+			for {
+				if err := c.handleErrorWithRetry(ctx, msg, validationErr.Error()); err == nil {
+					break
+				}
+				log.Printf("DLQ path failed, retrying in 5s (ClickHouse/Kafka may be down): %v", err)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(5 * time.Second):
+				}
 			}
-			// Commit after DLQ success
 			if err := c.reader.CommitMessages(ctx, msg); err != nil {
 				log.Printf("commit after DLQ failed: %v", err)
 			}
@@ -202,20 +208,49 @@ func (c *Consumer) parseAndValidate(data []byte) (*model.PageViewEvent, error) {
 	return ev, nil
 }
 
+// handleError sends to DLQ and writes to processing_errors. Returns error if either fails.
+// Both must succeed for at-least-once: commit only after both complete.
+// Caller must NOT commit and must NOT RecordDLQ when handleError returns error.
 func (c *Consumer) handleError(ctx context.Context, msg kafka.Message, errorReason string) error {
-	// Send to DLQ
+	// 1. Send to DLQ
 	if err := c.dlqProducer.Send(ctx, msg.Value, "", msg.Offset, int32(msg.Partition)); err != nil {
-		return err
+		return fmt.Errorf("DLQ send: %w", err)
 	}
 
-	// Write to processing_errors table
+	// 2. Write to processing_errors table - both must succeed for commit
 	if err := c.repo.InsertError(ctx, string(msg.Value), errorReason, msg.Offset, int32(msg.Partition)); err != nil {
-		log.Printf("insert error record failed: %v", err)
-		// Don't fail DLQ if error insert fails
+		return fmt.Errorf("processing_errors insert: %w", err)
 	}
 
 	c.metrics.RecordDLQ()
 	return nil
+}
+
+// handleErrorWithRetry retries until both DLQ and processing_errors succeed. Blocks on failure.
+func (c *Consumer) handleErrorWithRetry(ctx context.Context, msg kafka.Message, errorReason string) error {
+	const maxAttempts = 10
+	const baseDelay = time.Second
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			delay := baseDelay * time.Duration(1<<uint(attempt-1))
+			log.Printf("retrying DLQ+processing_errors (attempt %d/%d) after %v", attempt+1, maxAttempts, delay)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		if err := c.handleError(ctx, msg, errorReason); err == nil {
+			return nil
+		} else if attempt < maxAttempts-1 {
+			log.Printf("DLQ path error (attempt %d/%d): %v", attempt+1, maxAttempts, err)
+		} else {
+			return err
+		}
+	}
+	return errors.New("max retry attempts exceeded")
 }
 
 func (c *Consumer) flushLoop(ctx context.Context) {
@@ -254,7 +289,7 @@ func (c *Consumer) flush(ctx context.Context) {
 	if err := c.insertWithRetry(ctx, rows); err != nil {
 		log.Printf("flush failed after retries: %v", err)
 		c.metrics.RecordCHError()
-		// Don't commit on failure (at-least-once guarantee)
+		c.buffer.PutBack(messages)
 		return
 	}
 
